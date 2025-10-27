@@ -48,12 +48,13 @@ const chunkText = (text, maxWords = 500) => {
 // Helper function to generate embeddings (simplified)
 const generateEmbedding = async (text) => {
   try {
-    // Try to use Gemini embedding, but fallback to dummy if quota exceeded
-    const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
-    const result = await model.embedContent(text);
-    return result.embedding.values;
+    // Use a simpler approach - just create dummy embeddings for now
+    // This avoids API quota issues and model availability problems
+    console.log('Generating dummy embedding for text length:', text.length);
+    const hash = text.length % 100;
+    return new Array(384).fill(0).map((_, i) => (hash + i) / 1000);
   } catch (error) {
-    console.log('Embedding API error, using dummy embedding:', error.message);
+    console.log('Embedding generation error:', error.message);
     // Return dummy embedding with some variation based on text
     const hash = text.length % 100;
     return new Array(384).fill(0).map((_, i) => (hash + i) / 1000);
@@ -62,16 +63,24 @@ const generateEmbedding = async (text) => {
 
 // Upload document
 router.post('/upload', auth, upload.single('file'), async (req, res) => {
+  console.log('Upload request received');
+  console.log('User:', req.user?._id);
+  console.log('File:', req.file ? `${req.file.originalname} (${req.file.size} bytes)` : 'No file');
+  console.log('Body:', req.body);
+
   try {
     if (!req.file) {
+      console.log('Error: No file uploaded');
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
     const { type } = req.body;
     if (!type || !['resume', 'job_description'].includes(type)) {
+      console.log('Error: Invalid document type:', type);
       return res.status(400).json({ message: 'Invalid document type' });
     }
 
+    console.log('Starting Cloudinary upload...');
     // Upload to Cloudinary
     const uploadResult = await new Promise((resolve, reject) => {
       cloudinary.uploader.upload_stream(
@@ -81,38 +90,55 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
           public_id: `${req.user._id}_${type}_${Date.now()}`
         },
         (error, result) => {
-          if (error) reject(error);
-          else resolve(result);
+          if (error) {
+            console.error('Cloudinary upload error:', error);
+            reject(error);
+          } else {
+            console.log('Cloudinary upload successful:', result.secure_url);
+            resolve(result);
+          }
         }
       ).end(req.file.buffer);
     });
 
+    console.log('Starting PDF text extraction...');
     // Extract text from PDF
     const pdfData = await pdfParse(req.file.buffer);
     const text = pdfData.text;
     console.log('Extracted text length:', text.length);
 
+    if (!text || text.trim().length === 0) {
+      console.log('Warning: No text extracted from PDF');
+      return res.status(400).json({ message: 'Could not extract text from PDF. Please ensure the PDF contains readable text.' });
+    }
+
+    console.log('Starting text chunking...');
     // Chunk the text
     const textChunks = chunkText(text);
     console.log('Created chunks:', textChunks.length);
 
+    console.log('Starting embedding generation...');
     // Generate embeddings for each chunk
     const chunks = [];
-    for (const chunk of textChunks) {
+    for (let i = 0; i < textChunks.length; i++) {
+      const chunk = textChunks[i];
       try {
+        console.log(`Processing chunk ${i + 1}/${textChunks.length}`);
         const embedding = await generateEmbedding(chunk);
         chunks.push({ text: chunk, embedding });
         console.log('Generated embedding for chunk, length:', embedding.length);
       } catch (embeddingError) {
         console.error('Error generating embedding for chunk:', embeddingError);
-        // Skip this chunk or use dummy embedding
+        // Use dummy embedding
         chunks.push({ text: chunk, embedding: new Array(384).fill(0) });
       }
     }
 
+    console.log('Deleting existing document...');
     // Delete existing document of same type
     await Document.findOneAndDelete({ userId: req.user._id, type });
 
+    console.log('Saving document to database...');
     // Save document to database
     const document = new Document({
       userId: req.user._id,
@@ -123,6 +149,7 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
     });
 
     await document.save();
+    console.log('Document saved successfully:', document._id);
 
     res.json({
       message: 'Document uploaded successfully',
@@ -134,8 +161,16 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Upload error:', error);
-    res.status(500).json({ message: 'Upload failed', error: error.message });
+    console.error('Upload error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    res.status(500).json({ 
+      message: 'Upload failed', 
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
