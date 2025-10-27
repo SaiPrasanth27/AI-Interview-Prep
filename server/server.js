@@ -82,6 +82,26 @@ app.get('/api/test-gemini', async (req, res) => {
   }
 });
 
+// Test upload dependencies
+app.get('/api/test-upload', (req, res) => {
+  const cloudinary = require('cloudinary').v2;
+  
+  res.json({
+    status: 'Upload dependencies check',
+    env: {
+      hasCloudinaryName: !!process.env.CLOUDINARY_CLOUD_NAME,
+      hasCloudinaryKey: !!process.env.CLOUDINARY_API_KEY,
+      hasCloudinarySecret: !!process.env.CLOUDINARY_API_SECRET,
+      hasGeminiKey: !!process.env.GEMINI_API_KEY,
+      hasJwtSecret: !!process.env.JWT_SECRET,
+      cloudinaryName: process.env.CLOUDINARY_CLOUD_NAME || 'NOT_SET'
+    },
+    cloudinaryConfig: {
+      configured: !!(cloudinary.config().cloud_name && cloudinary.config().api_key)
+    }
+  });
+});
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
