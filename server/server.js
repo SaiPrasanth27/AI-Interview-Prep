@@ -102,6 +102,20 @@ app.get('/api/test-upload', (req, res) => {
   });
 });
 
+// Simple test upload endpoint
+app.post('/api/test-simple-upload', (req, res) => {
+  console.log('Simple upload test - Headers:', req.headers);
+  console.log('Simple upload test - Body type:', typeof req.body);
+  console.log('Simple upload test - Content-Type:', req.get('Content-Type'));
+  
+  res.json({
+    message: 'Simple upload test successful',
+    headers: req.headers,
+    contentType: req.get('Content-Type'),
+    bodyType: typeof req.body
+  });
+});
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
